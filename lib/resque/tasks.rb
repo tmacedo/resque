@@ -21,7 +21,11 @@ namespace :resque do
 
     worker.log "Starting worker #{worker}"
 
-    worker.work(ENV['INTERVAL'] || 5) # interval, will block
+    # Use blocking pop if Redis version >= 1.3.1
+    redis_version = Resque.redis.info["redis_version"]
+    can_block     = redis_version && redis_version.to_f >= 1.3 && redis_version.split(".").last.to_i != 0
+
+    worker.work(:blocking => can_block, :interval => ENV['INTERVAL'] || 5) # interval, will block
   end
 
   desc "Start multiple Resque workers. Should only be used in dev mode."

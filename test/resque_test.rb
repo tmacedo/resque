@@ -222,4 +222,38 @@ context "Resque" do
   test "decode bad json" do
     assert_nil Resque.decode("{\"error\":\"Module not found \\u002\"}")
   end
+
+  test "can block on a single empty queue until a job is queued" do
+    if child = Kernel.fork
+      begin
+        assert_kind_of Resque::Job, Resque.reserve(:jobs, 1)
+      ensure
+        Process.wait(child)
+      end
+    else
+      # Open a new socket so we're not stuck waiting behind the blocking
+      # call made by the parent process.
+      Resque.reconnect
+      Resque::Job.create(:jobs, SomeJob)
+      exit!
+    end
+  end
+
+  test "can block on multiple empty queues until a job is queued" do
+    if child = Kernel.fork
+      begin
+        assert_kind_of Resque::Job, Resque.reserve([:queue1, :queue2], 5)
+        assert_kind_of Resque::Job, Resque.reserve([:queue1, :queue2], 5)
+      ensure
+        Process.wait(child)
+      end
+    else
+      Resque.reconnect
+
+      Resque::Job.create(:queue2, SomeJob)
+      Resque::Job.create(:queue1, SomeJob)
+
+      exit!
+    end
+  end
 end

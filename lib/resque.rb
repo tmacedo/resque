@@ -29,6 +29,8 @@ module Resque
   #   3. An instance of `Redis`, `Redis::Client`, `Redis::DistRedis`,
   #      or `Redis::Namespace`.
   def redis=(server)
+    @server = server
+
     if server.respond_to? :split
       host, port, db = server.split(':')
       redis = Redis.new(:host => host, :port => port,
@@ -56,6 +58,15 @@ module Resque
     else
       redis.client.id
     end
+  end
+
+  # Establishes a new Redis connection. Useful for testing a blocking
+  # pop (fork child process, establish new connection, and push onto a
+  # queue while the parent process blocks on that queue).
+  def reconnect
+    return self.redis unless defined?(@server)
+    self.redis = @server
+    self.redis
   end
 
   # The `before_first_fork` hook will be run in the **parent** process
@@ -126,6 +137,20 @@ module Resque
   # Returns a Ruby object.
   def pop(queue)
     decode redis.lpop("queue:#{queue}")
+  end
+
+  # Pops a job off the first non-empty of an array of queues, blocking
+  # if all queues are empty. A timeout of 0 will cause the call to block
+  # forever (or until the connection is reset)--not recommended.
+  #
+  # Returns a queue name and a Ruby object, or nil if `timeout` seconds
+  # passed with all queues remaining empty.
+  def bpop(queues, timeout)
+    args = queues.map { |q| "queue:#{q}" }
+    args << timeout
+
+    queue, raw_payload = redis.blpop(*args)
+    queue ? [queue.split(":").last, decode(raw_payload)] : nil
   end
 
   # Returns an integer representing the size of a queue.
@@ -237,11 +262,25 @@ module Resque
 
   # This method will return a `Resque::Job` object or a non-true value
   # depending on whether a job can be obtained. You should pass it the
-  # precise name of a queue: case matters.
+  # precise name of a queue: case matters. If a timeout is supplied,
+  # blocking will occur for that many seconds or until a job is found on
+  # (one of) the queue(s).
   #
   # This method is considered part of the `stable` API.
-  def reserve(queue)
-    Job.reserve(queue)
+  def reserve(queues, timeout = nil)
+    queues = [queues] unless queues.kind_of?(Array)
+
+    if timeout
+      queue, payload = bpop(queues, timeout)
+      return Job.new(queue, payload) if payload
+    else
+      queues.each do |queue|
+        payload = Resque.pop(queue)
+        return Job.new(queue, payload) if payload
+      end
+    end
+
+    nil
   end
 
 

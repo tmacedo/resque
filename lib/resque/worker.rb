@@ -97,20 +97,38 @@ module Resque
     # 2. Work loop: Jobs are pulled from a queue and processed.
     # 3. Teardown:  This worker is unregistered.
     #
-    # Can be passed an integer representing the polling frequency.
-    # The default is 5 seconds, but for a semi-active site you may
-    # want to use a smaller value.
+    # Options:
+    #   :interval    In polling mode, how often to poll; in blocking
+    #                mode, how often to timeout the blocking and return
+    #                to the main loop (to check if this worker has been
+    #                paused or shutdown).
+    #   :blocking    Whether or not the Redis call to grab a job should
+    #                block if all the queues are empty. Can only be used
+    #                if running Redis version >= 1.3.1.
+    #   :die_if_idle Whether or not this worker should die as soon as
+    #                there are no jobs to process. Useful for testing.
+    #
+    # The default interval is 5 seconds, but for a semi-active site you
+    # may want to use a smaller value when not using blocking.
     #
     # Also accepts a block which will be passed the job as soon as it
     # has completed processing. Useful for testing.
-    def work(interval = 5, &block)
+    def work(options = {:interval => 5}, &block)
       $0 = "resque: Starting"
       startup
+
+      # Support old way of passing in a simple polling interval.
+      unless options.kind_of?(Hash)
+        options = {:interval => options.to_i}
+        options[:die_if_idle] = options[:interval] == 0
+      end
+
+      options[:interval] = options[:interval].to_i
 
       loop do
         break if @shutdown
 
-        if not @paused and job = reserve
+        if not @paused and job = reserve(options[:blocking] ? options[:interval] : nil)
           log "got: #{job.inspect}"
           run_hook :before_fork
           working_on job
@@ -128,13 +146,14 @@ module Resque
           done_working
           @child = nil
         else
-          break if interval.to_i == 0
-          log! "Sleeping for #{interval.to_i}"
+          break if options[:die_if_idle]
+          next if options[:blocking] && !@paused
+
+          log! "Sleeping for #{options[:interval]}"
           procline @paused ? "Paused" : "Waiting for #{@queues.join(',')}"
-          sleep interval.to_i
+          sleep options[:interval]
         end
       end
-
     ensure
       unregister_worker
     end
@@ -168,16 +187,12 @@ module Resque
 
     # Attempts to grab a job off one of the provided queues. Returns
     # nil if no job can be found.
-    def reserve
-      queues.each do |queue|
-        log! "Checking #{queue}"
-        if job = Resque::Job.reserve(queue)
-          log! "Found job on #{queue}"
-          return job
-        end
-      end
+    def reserve(timeout = nil)
+      log! "Checking #{queues.join(', ')}"
+      job = Resque.reserve(queues, timeout)
+      log! "Found job on #{job.queue}" if job
 
-      nil
+      return job
     end
 
     # Returns a list of queues to use when searching for a job.
