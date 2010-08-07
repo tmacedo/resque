@@ -130,7 +130,7 @@ module Resque
 
         if not @paused and job = reserve(options[:blocking] ? options[:interval] : nil)
           log "got: #{job.inspect}"
-          run_hook :before_fork
+          run_hook :before_fork, job
           working_on job
 
           if @child = fork
