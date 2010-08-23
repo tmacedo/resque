@@ -34,8 +34,6 @@ module Resque
     @server = server
 
     if server.respond_to? :split
-      namespace = :resque
-
       if server =~ /redis\:\/\//
         redis = Redis.connect(:url => server)
       else
@@ -44,6 +42,7 @@ module Resque
         redis = Redis.new(:host => host, :port => port,
           :thread_safe => true, :db => db)
       end
+      namespace ||= :resque
 
       @redis = Redis::Namespace.new(namespace, :redis => redis)
     elsif server.respond_to? :namespace=
