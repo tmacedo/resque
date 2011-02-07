@@ -9,6 +9,7 @@ context "Resque::Worker" do
     Resque.after_fork = nil
 
     @worker = Resque::Worker.new(:jobs)
+    @worker.blocking = false
     Resque::Job.create(:jobs, SomeJob, 20, '/tmp')
   end
 
@@ -62,6 +63,7 @@ context "Resque::Worker" do
     Resque::Job.create(:critical, GoodJob)
 
     worker = Resque::Worker.new(:critical, :high)
+    worker.blocking = false
 
     worker.process
     assert_equal 1, Resque.size(:high)
@@ -77,6 +79,7 @@ context "Resque::Worker" do
     Resque::Job.create(:blahblah, GoodJob)
 
     worker = Resque::Worker.new("*")
+    worker.blocking = false
 
     worker.work(0)
     assert_equal 0, Resque.size(:high)
@@ -90,6 +93,7 @@ context "Resque::Worker" do
     Resque::Job.create(:blahblah, GoodJob)
 
     worker = Resque::Worker.new("*")
+    worker.blocking = false
     processed_queues = []
 
     worker.work(0) do |job|
@@ -111,6 +115,7 @@ context "Resque::Worker" do
 
   test "fails if a job class has no `perform` method" do
     worker = Resque::Worker.new(:perform_less)
+    worker.blocking = false
     Resque::Job.create(:perform_less, Object)
 
     assert_equal 0, Resque::Failure.count
@@ -239,10 +244,12 @@ context "Resque::Worker" do
   test "cleans up dead worker info on start (crash recovery)" do
     # first we fake out two dead workers
     workerA = Resque::Worker.new(:jobs)
+    workerA.blocking = false
     workerA.instance_variable_set(:@to_s, "#{`hostname`.chomp}:1:jobs")
     workerA.register_worker
 
     workerB = Resque::Worker.new(:high, :low)
+    workerB.blocking = false
     workerB.instance_variable_set(:@to_s, "#{`hostname`.chomp}:2:high,low")
     workerB.register_worker
 
@@ -264,6 +271,7 @@ context "Resque::Worker" do
     $BEFORE_FORK_CALLED = 0
     Resque.before_first_fork = Proc.new { $BEFORE_FORK_CALLED += 1 }
     workerA = Resque::Worker.new(:jobs)
+    workerA.blocking = false
     Resque::Job.create(:jobs, SomeJob, 20, '/tmp')
 
     assert_equal 0, $BEFORE_FORK_CALLED
@@ -281,6 +289,7 @@ context "Resque::Worker" do
     $BEFORE_FORK_CALLED = false
     Resque.before_fork = Proc.new { $BEFORE_FORK_CALLED = true }
     workerA = Resque::Worker.new(:jobs)
+    workerA.blocking = false
 
     assert !$BEFORE_FORK_CALLED
     Resque::Job.create(:jobs, SomeJob, 20, '/tmp')
@@ -293,6 +302,7 @@ context "Resque::Worker" do
     $AFTER_FORK_CALLED = false
     Resque.after_fork = Proc.new { $AFTER_FORK_CALLED = true }
     workerA = Resque::Worker.new(:jobs)
+    workerA.blocking = false
 
     assert !$AFTER_FORK_CALLED
     Resque::Job.create(:jobs, SomeJob, 20, '/tmp')
@@ -307,7 +317,7 @@ context "Resque::Worker" do
 
         processed_jobs = 0
 
-        worker.work(:blocking => true, :interval => 1, :die_if_idle => true) do |job|
+        worker.work(0) do |job|
           assert_kind_of Resque::Job, job
           processed_jobs +=1
         end

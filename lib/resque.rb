@@ -155,7 +155,7 @@ module Resque
   # Returns a queue name and a Ruby object, or nil if `timeout` seconds
   # passed with all queues remaining empty.
   def bpop(queues, timeout)
-    args = queues.map { |q| "queue:#{q}" }
+    args = queues.flatten.map { |q| "queue:#{q}" }
     args << timeout
 
     queue, raw_payload = redis.blpop(*args)
@@ -276,11 +276,12 @@ module Resque
   # (one of) the queue(s).
   #
   # This method is considered part of the `stable` API.
-  def reserve(queues, timeout = nil)
+  def reserve(queues, options={})
+    options = {:blocking => false, :block_timeout => 60}.merge(options)
     queues = [queues] unless queues.kind_of?(Array)
 
-    if timeout
-      queue, payload = bpop(queues, timeout)
+    if options[:blocking]
+      queue, payload = bpop(queues, options[:block_timeout])
       return Job.new(queue, payload) if payload
     else
       queues.each do |queue|

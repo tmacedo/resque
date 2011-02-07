@@ -20,6 +20,9 @@ module Resque
     # Automatically set if a fork(2) fails.
     attr_accessor :cant_fork
 
+    # Boolean indicating whether blocking redis calls should be used.
+    attr_accessor :blocking
+
     attr_writer :to_s
 
     # Returns an array of all worker objects.
@@ -75,6 +78,7 @@ module Resque
     def initialize(*queues)
       @queues = queues
       validate_queues
+      @blocking = redis.info["redis_version"] >= "1.3.1"
     end
 
     # A worker must be given a queue, otherwise it won't know what to
@@ -97,38 +101,20 @@ module Resque
     # 2. Work loop: Jobs are pulled from a queue and processed.
     # 3. Teardown:  This worker is unregistered.
     #
-    # Options:
-    #   :interval    In polling mode, how often to poll; in blocking
-    #                mode, how often to timeout the blocking and return
-    #                to the main loop (to check if this worker has been
-    #                paused or shutdown).
-    #   :blocking    Whether or not the Redis call to grab a job should
-    #                block if all the queues are empty. Can only be used
-    #                if running Redis version >= 1.3.1.
-    #   :die_if_idle Whether or not this worker should die as soon as
-    #                there are no jobs to process. Useful for testing.
-    #
-    # The default interval is 5 seconds, but for a semi-active site you
-    # may want to use a smaller value when not using blocking.
+    # Can be passed an integer representing the polling frequency.
+    # The default is 5 seconds, but for a semi-active site you may
+    # want to use a smaller value.
     #
     # Also accepts a block which will be passed the job as soon as it
     # has completed processing. Useful for testing.
-    def work(options = {:interval => 5}, &block)
+    def work(interval = 5, &block)
       $0 = "resque: Starting"
       startup
-
-      # Support old way of passing in a simple polling interval.
-      unless options.kind_of?(Hash)
-        options = {:interval => options.to_i}
-        options[:die_if_idle] = options[:interval] == 0
-      end
-
-      options[:interval] = options[:interval].to_i
 
       loop do
         break if shutdown?
 
-        if not @paused and job = reserve(options[:blocking] ? options[:interval] : nil)
+        if not @paused and job = reserve
           log "got: #{job.inspect}"
           run_hook :before_fork, job
           working_on job
@@ -146,12 +132,12 @@ module Resque
           done_working
           @child = nil
         else
-          break if options[:die_if_idle]
-          next if options[:blocking] && !@paused
+          break if interval.to_i == 0
+	  next if @blocking && !@paused
 
-          log! "Sleeping for #{options[:interval]}"
+          log! "Sleeping for #{interval.to_i}"
           procline @paused ? "Paused" : "Waiting for #{@queues.join(',')}"
-          sleep options[:interval]
+          sleep interval.to_i
         end
       end
     ensure
@@ -187,9 +173,9 @@ module Resque
 
     # Attempts to grab a job off one of the provided queues. Returns
     # nil if no job can be found.
-    def reserve(timeout = nil)
+    def reserve
       log! "Checking #{queues.join(', ')}"
-      job = Resque.reserve(queues, timeout)
+      job = Resque.reserve(queues, :blocking => @blocking)
       log! "Found job on #{job.queue}" if job
 
       return job

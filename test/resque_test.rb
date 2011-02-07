@@ -231,9 +231,10 @@ context "Resque" do
   end
 
   test "can block on a single empty queue until a job is queued" do
+
     if child = Kernel.fork
       begin
-        assert_kind_of Resque::Job, Resque.reserve(:jobs, 1)
+        assert_kind_of Resque::Job, Resque::Worker.new(:jobs).reserve
       ensure
         Process.wait(child)
       end
@@ -249,14 +250,12 @@ context "Resque" do
   test "can block on multiple empty queues until a job is queued" do
     if child = Kernel.fork
       begin
-        assert_kind_of Resque::Job, Resque.reserve([:queue1, :queue2], 5)
-        assert_kind_of Resque::Job, Resque.reserve([:queue1, :queue2], 5)
+        assert_kind_of Resque::Job, Resque::Worker.new([:queue1, :queue2]).reserve
       ensure
         Process.wait(child)
       end
     else
       Resque.reconnect
-
       Resque::Job.create(:queue2, SomeJob)
       Resque::Job.create(:queue1, SomeJob)
 
