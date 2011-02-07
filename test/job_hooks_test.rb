@@ -243,6 +243,7 @@ context "Resque::Job after_enqueue" do
   test "the after enqueue hook should run" do
     history = []
     @worker = Resque::Worker.new(:jobs)
+    @worker.shutdown
     Resque::Job.create(:jobs, AfterEnqueueJob, history)
     @worker.work(0)
     assert_equal history, [:after_enqueue], "after_enqueue was not run"

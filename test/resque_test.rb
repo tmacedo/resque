@@ -16,6 +16,13 @@ context "Resque" do
     assert_equal 'namespace', Resque.redis.namespace
   end
 
+  test "can set a namespace through a url-like string" do
+    assert Resque.redis
+    assert_equal :resque, Resque.redis.namespace
+    Resque.redis = 'localhost:9736/namespace'
+    assert_equal 'namespace', Resque.redis.namespace
+  end
+
   test "can put jobs on a queue" do
     assert Resque::Job.create(:jobs, 'SomeJob', 20, '/tmp')
     assert Resque::Job.create(:jobs, 'SomeJob', 20, '/tmp')
@@ -228,5 +235,38 @@ context "Resque" do
 
   test "decode bad json" do
     assert_nil Resque.decode("{\"error\":\"Module not found \\u002\"}")
+  end
+
+  test "can block on a single empty queue until a job is queued" do
+
+    if child = Kernel.fork
+      begin
+        assert_kind_of Resque::Job, Resque::Worker.new(:jobs).reserve
+      ensure
+        Process.wait(child)
+      end
+    else
+      # Open a new socket so we're not stuck waiting behind the blocking
+      # call made by the parent process.
+      Resque.reconnect
+      Resque::Job.create(:jobs, SomeJob)
+      exit!
+    end
+  end
+
+  test "can block on multiple empty queues until a job is queued" do
+    if child = Kernel.fork
+      begin
+        assert_kind_of Resque::Job, Resque::Worker.new([:queue1, :queue2]).reserve
+      ensure
+        Process.wait(child)
+      end
+    else
+      Resque.reconnect
+      Resque::Job.create(:queue2, SomeJob)
+      Resque::Job.create(:queue1, SomeJob)
+
+      exit!
+    end
   end
 end

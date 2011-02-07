@@ -20,6 +20,9 @@ module Resque
     # Automatically set if a fork(2) fails.
     attr_accessor :cant_fork
 
+    # Boolean indicating whether blocking redis calls should be used.
+    attr_accessor :blocking
+
     attr_writer :to_s
 
     # Returns an array of all worker objects.
@@ -75,6 +78,7 @@ module Resque
     def initialize(*queues)
       @queues = queues
       validate_queues
+      @blocking = redis.info["redis_version"] >= "1.3.1"
     end
 
     # A worker must be given a queue, otherwise it won't know what to
@@ -129,12 +133,13 @@ module Resque
           @child = nil
         else
           break if interval.to_i == 0
+	  next if @blocking && !@paused
+
           log! "Sleeping for #{interval.to_i}"
           procline @paused ? "Paused" : "Waiting for #{@queues.join(',')}"
           sleep interval.to_i
         end
       end
-
     ensure
       unregister_worker
     end
@@ -169,15 +174,11 @@ module Resque
     # Attempts to grab a job off one of the provided queues. Returns
     # nil if no job can be found.
     def reserve
-      queues.each do |queue|
-        log! "Checking #{queue}"
-        if job = Resque::Job.reserve(queue)
-          log! "Found job on #{queue}"
-          return job
-        end
-      end
+      log! "Checking #{queues.join(', ')}"
+      job = Resque.reserve(queues, :blocking => @blocking)
+      log! "Found job on #{job.queue}" if job
 
-      nil
+      return job
     end
 
     # Returns a list of queues to use when searching for a job.
