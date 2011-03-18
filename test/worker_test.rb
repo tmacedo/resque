@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/test_helper'
+require 'test_helper'
 
 context "Resque::Worker" do
   setup do
@@ -24,6 +24,13 @@ context "Resque::Worker" do
     @worker.work(0)
     assert_equal('SyntaxError', Resque::Failure.all['exception'])
     assert_equal('Extra Bad job!', Resque::Failure.all['error'])
+  end
+
+  test "does not allow exceptions from failure backend to escape" do
+    job = Resque::Job.new(:jobs, {})
+    with_failure_backend BadFailureBackend do
+      @worker.perform job
+    end
   end
 
   test "fails uncompleted jobs on exit" do
@@ -56,6 +63,12 @@ context "Resque::Worker" do
     @worker.process
     @worker.process
     assert_equal 2, Resque::Failure.count
+  end
+
+  test "strips whitespace from queue names" do
+    queues = "critical, high, low".split(',')
+    worker = Resque::Worker.new(*queues)
+    assert_equal %w( critical high low ), worker.queues
   end
 
   test "can work on multiple queues" do
@@ -297,6 +310,19 @@ context "Resque::Worker" do
     assert $BEFORE_FORK_CALLED
   end
 
+  test "very verbose works in the afternoon" do
+    require 'time'
+    $last_puts = ""
+    $fake_time = Time.parse("15:44:33 2011-03-02")
+    singleton = class << @worker; self end
+    singleton.send :define_method, :puts, lambda { |thing| $last_puts = thing }
+
+    @worker.very_verbose = true
+    @worker.log("some log text")
+
+    assert_match /\*\* \[15:44:33 2011-03-02\] \d+: some log text/, $last_puts
+  end
+
   test "Will call an after_fork hook after forking" do
     Resque.redis.flushall
     $AFTER_FORK_CALLED = false
@@ -334,5 +360,9 @@ context "Resque::Worker" do
 
       exit!
     end
+  end
+
+  test "returns PID of running process" do
+    assert_equal @worker.to_s.split(":")[1].to_i, @worker.pid
   end
 end

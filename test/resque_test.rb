@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/test_helper'
+require 'test_helper'
 
 context "Resque" do
   setup do
@@ -8,7 +8,7 @@ context "Resque" do
     Resque.push(:people, { 'name' => 'bob' })
     Resque.push(:people, { 'name' => 'mark' })
   end
-  
+
   test "can set a namespace through a url-like string" do
     assert Resque.redis
     assert_equal :resque, Resque.redis.namespace
@@ -135,6 +135,12 @@ context "Resque" do
     end
   end
 
+  test "validates job for queue presence" do
+    assert_raises Resque::NoQueueError do
+      Resque.validate(SomeJob)
+    end
+  end
+
   test "can put items on a queue" do
     assert Resque.push(:people, { 'name' => 'jon' })
   end
@@ -234,7 +240,19 @@ context "Resque" do
   end
 
   test "decode bad json" do
-    assert_nil Resque.decode("{\"error\":\"Module not found \\u002\"}")
+    assert_raises Resque::Helpers::DecodeException do
+      Resque.decode("{\"error\":\"Module not found \\u002\"}")
+    end
+  end
+
+  test "inlining jobs" do
+    begin
+      Resque.inline = true
+      Resque.enqueue(SomeIvarJob, 20, '/tmp')
+      assert_equal 0, Resque.size(:ivar)
+    ensure
+      Resque.inline = false
+    end
   end
 
   test "can block on a single empty queue until a job is queued" do
@@ -257,7 +275,7 @@ context "Resque" do
   test "can block on multiple empty queues until a job is queued" do
     if child = Kernel.fork
       begin
-        assert_kind_of Resque::Job, Resque::Worker.new([:queue1, :queue2]).reserve
+        assert_kind_of Resque::Job, Resque::Worker.new(:queue1, :queue2).reserve
       ensure
         Process.wait(child)
       end

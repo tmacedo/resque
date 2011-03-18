@@ -35,7 +35,7 @@ module Resque
 
     if server.respond_to? :split
       if server =~ /redis\:\/\//
-        redis = Redis.connect(:url => server)
+        redis = Redis.connect(:url => server, :thread_safe => true)
       else
         server, namespace = server.split('/', 2)
         host, port, db = server.split(':')
@@ -129,6 +129,17 @@ module Resque
     "Resque Client connected to #{redis_id}"
   end
 
+  # If 'inline' is true Resque will call #perform method inline
+  # without queuing it into Redis and without any Resque callbacks.
+  # The 'inline' is false Resque jobs will be put in queue regularly.
+  def inline?
+    @inline
+  end
+  alias_method :inline, :inline?
+
+  def inline=(inline)
+    @inline = inline
+  end
 
   #
   # queue manipulation
@@ -229,6 +240,10 @@ module Resque
   # This method is considered part of the `stable` API.
   def enqueue(klass, *args)
     Job.create(queue_from_class(klass), klass, *args)
+
+    Plugin.after_enqueue_hooks(klass).each do |hook|
+      klass.send(hook, *args)
+    end
   end
 
   # This method can be used to conveniently remove a job from a queue.
@@ -291,6 +306,23 @@ module Resque
     end
 
     nil
+  end
+
+  # Validates if the given klass could be a valid Resque job
+  #
+  # If no queue can be inferred this method will raise a `Resque::NoQueueError`
+  #
+  # If given klass is nil this method will raise a `Resque::NoClassError`
+  def validate(klass, queue = nil)
+    queue ||= queue_from_class(klass)
+
+    if !queue
+      raise NoQueueError.new("Jobs must be placed onto a queue.")
+    end
+
+    if klass.to_s.empty?
+      raise NoClassError.new("Jobs must be given a class.")
+    end
   end
 
 

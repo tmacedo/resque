@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/test_helper'
+require 'test_helper'
 
 context "Resque::Job before_perform" do
   include PerformJob
@@ -232,6 +232,7 @@ context "Resque::Job after_enqueue" do
   include PerformJob
 
   class ::AfterEnqueueJob
+    @queue = :jobs
     def self.after_enqueue_record_history(history)
       history << :after_enqueue
     end
@@ -242,10 +243,7 @@ context "Resque::Job after_enqueue" do
 
   test "the after enqueue hook should run" do
     history = []
-    @worker = Resque::Worker.new(:jobs)
-    @worker.shutdown
-    Resque::Job.create(:jobs, AfterEnqueueJob, history)
-    @worker.work(0)
+    Resque.enqueue(AfterEnqueueJob, history)
     assert_equal history, [:after_enqueue], "after_enqueue was not run"
   end
 end
@@ -321,4 +319,3 @@ context "Resque::Job all hooks" do
     ]
   end
 end
-
