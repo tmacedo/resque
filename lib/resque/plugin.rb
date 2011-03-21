@@ -25,27 +25,37 @@ module Resque
 
     # Given an object, returns a list `before_perform` hook names.
     def before_hooks(job)
-      job.methods.grep(/^before_perform/).sort
+      memoized_methods(job).grep(/^before_perform/).sort
     end
 
     # Given an object, returns a list `around_perform` hook names.
     def around_hooks(job)
-      job.methods.grep(/^around_perform/).sort
+      memoized_methods(job).grep(/^around_perform/).sort
     end
 
     # Given an object, returns a list `after_perform` hook names.
     def after_hooks(job)
-      job.methods.grep(/^after_perform/).sort
+      memoized_methods(job).grep(/^after_perform/).sort
     end
 
     # Given an object, returns a list `on_failure` hook names.
     def failure_hooks(job)
-      job.methods.grep(/^on_failure/).sort
+     memoized_methods(job).grep(/^on_failure/).sort
     end
 
     # Given an object, returns a list `after_enqueue` hook names.
     def after_enqueue_hooks(job)
-      job.methods.grep(/^after_enqueue/).sort
+      memoized_methods(job).grep(/^after_enqueue/).sort
+    end
+
+    def memoized_methods(job)
+      @@methods ||= Hash.new
+      methods = @@methods[job.to_s]
+      if methods.nil?
+        methods = job.methods
+        @@methods[job.to_s] = methods
+      end
+      methods
     end
   end
 end
